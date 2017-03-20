@@ -1,0 +1,535 @@
+#include "stdafx.h"
+
+ 
+
+#include <windows.h>
+
+#include <stdio.h> 
+
+#include <sql.h>
+
+#include <sqltypes.h>
+
+#include <sqlext.h>
+
+#include <string>
+
+#include <vector>
+
+#include <iostream>
+
+ 
+
+using namespace std;
+
+ 
+
+//Define the ODBC_Class Class
+
+class ODBC_Class
+
+{
+
+       struct ColDescription
+
+       {
+
+             SQLSMALLINT colNumber;
+
+             SQLCHAR  colname[80];
+
+             SQLSMALLINT nameLen;
+
+             SQLSMALLINT dataType;
+
+             SQLULEN colSize;
+
+             SQLSMALLINT decimalDigits;
+
+             SQLSMALLINT nullable;
+
+ 
+
+       };
+
+ 
+
+       // Attributes
+
+public:
+
+       SQLHANDLE EnvHandle;
+
+       SQLHANDLE ConHandle;
+
+       SQLHANDLE StmtHandle;
+
+       SQLRETURN rc;
+
+       vector<ColDescription> cols;
+
+       vector< vector<string> > colData;
+
+ 
+
+       // Operations
+
+public:
+
+       ODBC_Class();  // Constructor
+
+       ~ODBC_Class(); // Destructor
+
+ 
+
+       SQLRETURN GetResultset();
+
+       void DescribeColumns();
+
+       void ODBCErrorCheck(SQLHANDLE handle);
+
+private:
+
+       _inline SQLRETURN Describe(ColDescription& c);
+
+       SQLRETURN GetColData(int colnum, string& str);
+
+ 
+
+};
+
+ 
+
+// Define The Class Constructor
+
+ODBC_Class::ODBC_Class()
+
+{
+
+       // Initialize The Return Code Variable
+
+       rc = SQL_SUCCESS;
+
+ 
+
+       // Allocate environment handle
+
+       rc = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &EnvHandle);
+
+ 
+
+       if (rc == SQL_SUCCESS)
+
+             rc = SQLSetEnvAttr(EnvHandle, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, SQL_IS_INTEGER);
+
+ 
+
+       if (rc == SQL_SUCCESS)
+
+             rc = SQLAllocHandle(SQL_HANDLE_DBC, EnvHandle, &ConHandle);
+
+}
+
+ODBC_Class::~ODBC_Class()
+
+{
+
+ 
+
+}
+
+// Get the data for one column and return the info in the form
+
+// of a std::string.The ODBC driver will make all necessary
+
+// data conversions from whatever type the data is in the database
+
+// to SQL_CHAR.  You could make this function more complete by
+
+// getting the return type as it appears in the database then constructing
+
+// a VARIANT object to hold the data.
+
+SQLRETURN ODBC_Class::GetColData(int colnum, string& str)
+
+{
+
+       SQLCHAR buf[255] = { 0 };
+
+       if ((rc = SQLGetData(StmtHandle, colnum, SQL_CHAR, buf, sizeof(buf), NULL)) == SQL_SUCCESS)
+
+             str = reinterpret_cast<char*>(buf);
+
+       return rc;
+
+}
+
+ 
+
+// Define The ShowResults() Member Function
+
+SQLRETURN ODBC_Class::GetResultset()
+
+{
+
+       // Get all column description
+
+       DescribeColumns();
+
+       // erase anything that's in the colData vector
+
+       colData.clear();
+
+ 
+
+       // Test if fetching is possible, if not diagnose possible errors
+
+       if (SQLFetch(StmtHandle) != SQL_SUCCESS) {
+
+             ODBCErrorCheck(StmtHandle);
+
+       }
+
+            
+
+       // fetch a row from the resultset
+
+       while (SQLFetch(StmtHandle) == SQL_SUCCESS)
+
+       {
+
+             // vector of strings to hold the column data
+
+             vector<string> col;
+
+             string data;
+
+ 
+
+             //LPM
+
+             string data2;
+
+ 
+
+             // column counter
+
+             int i = 1;
+
+             // get the data for each column and add it to the col vector
+
+             while (GetColData(i, data) == SQL_SUCCESS)
+
+             {
+
+                    col.push_back(data);
+
+ 
+
+                    //cout << col[1];
+
+ 
+
+                    ++i; // increment the column number
+
+             }
+
+ 
+
+             // add column data to the colData vector
+
+             colData.push_back(col);
+
+ 
+
+             printf(" %s: %s\n", cols[1].colname, col[1].c_str());
+
+             printf(" %s: %s\n", cols[2].colname, col[2].c_str());
+
+             printf(" %s: %s\n", cols[3].colname, col[3].c_str());
+
+ 
+
+       }
+
+ 
+
+       return SQL_SUCCESS;
+
+}
+
+ 
+
+// Get the description for one column in the resultset.
+
+// This was made a seprate function to simplify the coding
+
+SQLRETURN  ODBC_Class::Describe(ColDescription& c)
+
+{
+
+       return SQLDescribeCol(StmtHandle, c.colNumber,
+
+             c.colname, sizeof(c.colname), &c.nameLen,
+
+             &c.dataType, &c.colSize, &c.decimalDigits, &c.nullable);
+
+}
+
+ 
+
+// Get the description for all the columns in the resultset.
+
+void ODBC_Class::DescribeColumns()
+
+{
+
+       ColDescription c;
+
+       c.colNumber = 1;
+
+       cols.clear();
+
+       while (Describe(c) == SQL_SUCCESS)
+
+       {
+
+             cols.push_back(c);
+
+             ++c.colNumber;
+
+       }
+
+}
+
+ 
+
+void ODBC_Class::ODBCErrorCheck(SQLHANDLE handle) {
+
+ 
+
+       SQLCHAR state[256], errorMsg[256];
+
+       SDWORD nativeErr = 0L;
+
+       SWORD pcbErrorMsg = 0;
+
+       SQLSMALLINT recordnumber = 1;
+
+       SQLRETURN ret1;
+
+ 
+
+       ret1 = SQLGetDiagRec(SQL_HANDLE_STMT, handle, recordnumber, state, &nativeErr, errorMsg, 255, &pcbErrorMsg);
+
+       if (SQL_SUCCEEDED(ret1)) {
+
+             cout << state << "\t" << recordnumber << "\t" << nativeErr << "\t" << errorMsg << endl;
+
+             printf("%s:%ld:%ld:%s\n", state, recordnumber, nativeErr, errorMsg);
+
+       }
+
+ 
+
+}
+
+void ErrorCheck(SQLHANDLE handle){
+
+ 
+
+       SQLCHAR state[256], errorMsg[256];
+
+       SDWORD nativeErr = 0L;
+
+       SWORD pcbErrorMsg = 0;
+
+       SQLSMALLINT recordnumber = 1;
+
+       SQLRETURN ret1;
+
+ 
+
+       ret1 = SQLGetDiagRec(SQL_HANDLE_STMT, handle, recordnumber, state, &nativeErr, errorMsg, 255, &pcbErrorMsg);
+
+       if (SQL_SUCCEEDED(ret1)) {
+
+             cout << state << "\t" << recordnumber << "\t" << nativeErr << "\t" << errorMsg << endl;
+
+             printf("%s:%ld:%ld:%s\n", state, recordnumber, nativeErr, errorMsg);
+
+       }
+
+ 
+
+}
+
+ 
+
+ 
+
+int main()
+
+{
+
+ 
+
+       // Declare The Local Memory Variables
+
+       SQLRETURN rc = SQL_SUCCESS;
+
+       SQLCHAR DBName[] = "IONTEST";
+
+       SQLCHAR SQLStmt[255] = { 0 };
+
+       SQLCHAR SQLDados[] = " ";
+
+      
+
+       SQLLEN Customer = 0;
+
+      
+
+       string ResultXML[1000];
+
+       SQLINTEGER ResultXMLInd;
+
+ 
+
+       SQLUSMALLINT Row_Stat[112];
+
+       SQLULEN pcrow;
+
+ 
+
+ 
+
+       // Create An Instance Of The ODBC_Class Class
+
+       ODBC_Class Example;
+
+ 
+
+       // Connect To The Database
+
+       if (Example.ConHandle != NULL)
+
+       {
+
+ 
+
+             rc = SQLConnect(Example.ConHandle, DBName, SQL_NTS,
+
+                    (SQLCHAR *) "username", SQL_NTS, (SQLCHAR *) "Password", SQL_NTS);
+
+             // Allocate An SQL Statement Handle
+
+             rc = SQLAllocHandle(SQL_HANDLE_STMT, Example.ConHandle,
+
+                    &Example.StmtHandle);
+
+             if (rc == SQL_SUCCESS)
+
+             {
+
+                    // Define A SELECT SQL Statement
+
+                    strcpy((char *)SQLStmt, "CALL QGPL.SPORDERS()");
+
+ 
+
+                    rc = SQLFreeStmt(Example.StmtHandle, SQL_CLOSE);
+
+                    if (rc != SQL_SUCCESS) {
+
+                           Example.ODBCErrorCheck(Example.StmtHandle);
+
+                    }
+
+ 
+
+                    // Prepare And Execute The SQL Statement
+
+                    rc = SQLExecDirect(Example.StmtHandle, SQLStmt, SQL_NTS);
+
+                    // Display The Results Of The SQL Query
+
+                    if (rc == SQL_SUCCESS)
+
+                    {
+
+                           rc = SQLExtendedFetch(Example.StmtHandle, SQL_FETCH_FIRST, 1, &pcrow, Row_Stat);
+
+                           if (rc != SQL_SUCCESS) {
+
+                                  Example.ODBCErrorCheck(Example.StmtHandle);
+
+                           }
+
+ 
+
+                           rc = SQLBindCol(Example.StmtHandle, 1, SQL_CHAR, ( SQLPOINTER ) ResultXML, sizeof(ResultXML), &ResultXMLInd);
+
+                           if (rc != SQL_SUCCESS) {
+
+                                  Example.ODBCErrorCheck(Example.StmtHandle);
+
+                           }
+
+                           else {
+
+                                  printf("XML Result: %s\n", ResultXML);
+
+                           }
+
+ 
+
+                           Example.GetResultset();
+
+                    //     while (rc == SQL_SUCCESS)
+
+                    //     {
+
+                    //           rc = SQLFetch(Example.StmtHandle);
+
+                    //     }
+
+ 
+
+                           // At this point you would want to do something
+
+                           // with the resultset, such as display it.
+
+ 
+
+                    } else {
+
+                           Example.ODBCErrorCheck(Example.StmtHandle);
+
+                          
+
+                    }
+
+      
+
+             }
+
+             // Free The SQL Statement Handle
+
+             if (Example.StmtHandle != NULL)
+
+                    SQLFreeHandle(SQL_HANDLE_STMT, Example.StmtHandle);
+
+             // Disconnect From The Northwind Sample Database
+
+             rc = SQLDisconnect(Example.ConHandle);
+
+             SQLCloseCursor(Example.StmtHandle);
+
+       }
+
+       // Return To The Operating System
+
+       return rc;
+
+}
